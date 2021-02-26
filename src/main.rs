@@ -161,18 +161,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .unwrap();
 
-    let m = MultiProgress::new();
+    // let m = MultiProgress::new();
     let sty = ProgressStyle::default_bar()
         .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}")
         .progress_chars("##-");
 
     let mut progress_bars = vec![];
+    let m = MultiProgress::new();
     conversions.iter().for_each(|conversion| {
-        let pb = m.add(ProgressBar::new(128));
+        let pb = m.add(ProgressBar::new(100));
         pb.set_style(sty.clone());
         pb.set_position(0);
         pb.set_message(&conversion.input_file_name);
         progress_bars.push(pb);
+    });
+
+    tokio::spawn(async move {
+        m.join().unwrap();
     });
 
     loop {
@@ -188,10 +193,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
         for (index, e) in conversions.iter().enumerate() {
             progress_bars[index].set_position(e.progress);
+            progress_bars[index].set_message(&e.input_file_name);
+            if e.progress==100 {
+                progress_bars[index].finish_and_clear();
+            }
         }
         conversions.retain(|conversion| !conversion.done);
+        progress_bars.retain(|progress_bar|{!progress_bar.position()!=100});
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
-    m.join_and_clear().unwrap();
     Ok(())
 }
