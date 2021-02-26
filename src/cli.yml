@@ -1,0 +1,13 @@
+name: convertio
+version: "1.0"
+author: Jameslahm <jameslahm17@gmail.com>
+args:
+  - format:
+      short: f
+      value_name: FORMAT
+      about: Set output file format
+      takes_value: true
+  - input:
+      required: true
+      multiple: true
+      about: Set the input file
