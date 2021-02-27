@@ -1,5 +1,5 @@
 ## Convertio
-Convert anything for one format to another using [convertio.co](https://convertio.co/)
+Convert anything from one format to another using [convertio.co](https://convertio.co/)
 
 ### example
 ```bash
