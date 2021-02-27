@@ -2,10 +2,16 @@ use base64::{decode, encode};
 use clap::{load_yaml, App};
 use futures::future::try_join_all;
 use serde::{Deserialize, Deserializer};
-use std::{collections::HashMap, fs::File, io::{Read, Write}, path::PathBuf, time::Duration, u64};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{Read, Write},
+    path::PathBuf,
+    time::Duration,
+    u64,
+};
 
 // const API_KEY: &str = "3953957dd37204f2622ff3361c5d6e87";
-const API_KEY:&str = "0750521d6eee3603ac222d0422891eea";
 const API_BASE_URL: &str = "http://api.convertio.co/convert";
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
@@ -62,10 +68,11 @@ struct ConversionTask {
 async fn start_conversion(
     input_file_name: &str,
     output_format: &str,
+    api_key: &str,
 ) -> Result<ConversionTask, Box<dyn std::error::Error>> {
     // Starts a new conversion
     let mut map = HashMap::new();
-    map.insert("apikey", API_KEY);
+    map.insert("apikey", api_key);
     map.insert("input", "base64");
 
     let mut file = File::open(input_file_name).expect("file open failed");
@@ -80,7 +87,7 @@ async fn start_conversion(
 
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}", API_BASE_URL).as_str())
+        .post(API_BASE_URL)
         .json(&map)
         .send()
         .await?
@@ -88,12 +95,12 @@ async fn start_conversion(
         .await?;
 
     if resp.code != 200 {
-        return Err(format!("{}", resp.error.unwrap()).into());
+        return Err(resp.error.unwrap().into());
     }
 
     let conversion_id = resp.data.unwrap().id;
     Ok(ConversionTask {
-        conversion_id: conversion_id,
+        conversion_id,
         done: false,
         input_file_name: input_file_name.to_owned(),
         output_format: output_format.to_owned(),
@@ -110,7 +117,7 @@ async fn wait_for_status(task: &mut ConversionTask) -> Result<(), Box<dyn std::e
         .json::<StatusConversionResp>()
         .await?;
     if resp.code == 200 {
-        if resp.data.clone().unwrap().step.as_deref().unwrap().clone() == "finish" {
+        if resp.data.clone().unwrap().step.as_deref().unwrap() == "finish" {
             let client = reqwest::Client::new();
             let resp = client
                 .get(format!("{}/{}/dl/base64", API_BASE_URL, task.conversion_id).as_str())
@@ -128,14 +135,7 @@ async fn wait_for_status(task: &mut ConversionTask) -> Result<(), Box<dyn std::e
             task.done = true;
             task.progress = 100;
         } else {
-            task.progress = resp
-                .data
-                .clone()
-                .unwrap()
-                .step_percent
-                .as_ref()
-                .unwrap()
-                .clone();
+            task.progress = *resp.data.clone().unwrap().step_percent.as_ref().unwrap();
         }
     }
     if resp.code != 200 {
@@ -155,11 +155,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let input_file_names = matches.values_of("input").unwrap();
 
-    let mut conversions: Vec<ConversionTask> = try_join_all(
-        input_file_names.map(|input_file_name| start_conversion(input_file_name, output_format)),
-    )
-    .await
-    .unwrap();
+    let api_key = match std::env::var("CONVERTIO_API_KEY") {
+        Ok(s) => s,
+        Err(_) => "0750521d6eee3603ac222d0422891eea".to_owned(),
+    };
+
+    let mut conversions: Vec<ConversionTask> =
+        try_join_all(input_file_names.map(|input_file_name| {
+            start_conversion(input_file_name, output_format, api_key.as_str())
+        }))
+        .await
+        .unwrap();
 
     // let m = MultiProgress::new();
     let sty = ProgressStyle::default_bar()
@@ -181,7 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     loop {
-        if conversions.len() == 0 {
+        if conversions.is_empty() {
             break;
         }
         try_join_all(
@@ -194,12 +200,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (index, e) in conversions.iter().enumerate() {
             progress_bars[index].set_position(e.progress);
             progress_bars[index].set_message(&e.input_file_name);
-            if e.progress==100 {
+            if e.progress == 100 {
                 progress_bars[index].finish_and_clear();
             }
         }
         conversions.retain(|conversion| !conversion.done);
-        progress_bars.retain(|progress_bar|{!progress_bar.position()!=100});
+        progress_bars.retain(|progress_bar| !progress_bar.position() != 100);
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
     Ok(())
